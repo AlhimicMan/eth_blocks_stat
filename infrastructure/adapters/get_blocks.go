@@ -15,7 +15,7 @@ import (
 const (
 	rpcVersion = "2.0"
 	defaultId  = "getblock.io"
-	rateLimit  = time.Second / 60 // 60 RPS
+	rateLimit  = time.Second / 50 // 50 RPS
 )
 
 type GetBlockClient struct {
