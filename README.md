@@ -8,6 +8,15 @@ To determine target address service parse transaction input, determine target ad
 
 Implemented rate limiter to support 60 RPC (limitations of GetBlock service).
 
+## Config
+
+Required environment variables:
+```
+GET_BLOCK_API_KEY=<API KEY>>
+HTTP_SERVER_HOST=<SERVER LISTEN HOST>
+HTTP_SERVER_PORT=<SERVER LISTEN PORT>
+```
+
 ## Limitations
 
 Supported `transfer(address _to, uint256 _value)` method. 
