@@ -7,20 +7,21 @@ import (
 	"errors"
 	"eth_blocks_stat/core/adapters"
 	"fmt"
-	"io"
-	"math/big"
 	"net/http"
 	"reflect"
+	"time"
 )
 
 const (
 	rpcVersion = "2.0"
 	defaultId  = "getblock.io"
+	rateLimit  = time.Second / 60 // 60 RPS
 )
 
 type GetBlockClient struct {
-	apiKey string
-	apiURL string
+	apiKey   string
+	apiURL   string
+	throttle <-chan time.Time
 }
 
 type JSONRpcReq struct {
@@ -38,13 +39,16 @@ type JSONRpcRes struct {
 
 func NewGetBlockClient(apiKey string) adapters.GetBlockClientI {
 	apiURL := fmt.Sprintf("https://go.getblock.io/%s", apiKey)
+	throttle := time.Tick(rateLimit)
 	return &GetBlockClient{
-		apiKey: apiKey,
-		apiURL: apiURL,
+		apiKey:   apiKey,
+		apiURL:   apiURL,
+		throttle: throttle,
 	}
 }
 
 func (g *GetBlockClient) performRPCCall(ctx context.Context, method string, params []interface{}, result interface{}) error {
+	<-g.throttle
 	if reflect.TypeOf(result).Kind() != reflect.Ptr {
 		return errors.New("result parameter must be pointer to struct where response will be decoded")
 	}
@@ -71,37 +75,30 @@ func (g *GetBlockClient) performRPCCall(ctx context.Context, method string, para
 	callRes := JSONRpcRes{
 		Result: result,
 	}
-	resData, _ := io.ReadAll(res.Body)
-	fmt.Printf("resulted body: %s\n", string(resData))
-	err = json.NewDecoder(bytes.NewBuffer(resData)).Decode(&callRes)
+	err = json.NewDecoder(res.Body).Decode(&callRes)
 	if err != nil {
 		return fmt.Errorf("cannot parse response: %w", err)
 	}
 	return nil
 }
 
-func (g *GetBlockClient) GetLastBlockNumber(ctx context.Context) (big.Int, error) {
+func (g *GetBlockClient) GetLastBlockNumber(ctx context.Context) (string, error) {
 	var blockNumRes string
 	err := g.performRPCCall(ctx, "eth_blockNumber", nil, &blockNumRes)
 	if err != nil {
-		return big.Int{}, fmt.Errorf("cannot perform rpc call eth_blockNumber: %w", err)
+		return "", fmt.Errorf("cannot perform rpc call eth_blockNumber: %w", err)
 	}
-	if len(blockNumRes) == 0 {
-		return big.Int{}, errors.New("got empty block number")
+	if len(blockNumRes) < 3 {
+		return "", errors.New("got empty block number")
 	}
-	blockNum, ok := new(big.Int).SetString(blockNumRes[2:], 16)
-	if !ok {
-		return big.Int{}, fmt.Errorf("cannot parse block number: %w", err)
-	}
-	fmt.Printf("last block number: %s, hex: %s\n", blockNum, blockNumRes)
 
-	return *blockNum, nil
+	return blockNumRes[2:], nil
 }
 
-func (g *GetBlockClient) GetBlockRecord(ctx context.Context, blockNumber big.Int) (adapters.BlockRecord, error) {
+func (g *GetBlockClient) GetBlockRecord(ctx context.Context, blockNumber string) (adapters.BlockRecord, error) {
 	blockRec := adapters.BlockRecord{}
 	params := []interface{}{
-		fmt.Sprintf("0x%x", &blockNumber),
+		blockNumber,
 		true,
 	}
 	err := g.performRPCCall(ctx, "eth_getBlockByNumber", params, &blockRec)

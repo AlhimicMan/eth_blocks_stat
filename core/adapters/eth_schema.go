@@ -9,6 +9,7 @@ type TransactionRec struct {
 	To               string `json:"to"`
 	Input            string `json:"input"`
 	TransactionIndex string `json:"transactionIndex"`
+	Hash             string `json:"hash"`
 }
 
 type BlockRecord struct {
