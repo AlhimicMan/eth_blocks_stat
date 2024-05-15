@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -34,6 +35,7 @@ func (c *Calculator) isERC20Transfer(txInput string) bool {
 func (c *Calculator) getERC20TransferToAddress(txInput string) string {
 	txRunes := []rune(txInput)
 	addr := string(txRunes[10:74])
+	addr = strings.TrimLeft(addr, "0")
 	return "0x" + addr
 }
 
@@ -56,7 +58,7 @@ func (c *Calculator) listBlockERC20ActivityStat(block adapters.BlockRecord) (map
 			aStatTo = 0
 		}
 		addStats[addrTo] = aStatTo + 1
-		//fmt.Printf("block %s tx from %s to %s\n", block.Number, tx.From, addrTo)
+
 	}
 
 	return addStats, nil
@@ -84,10 +86,9 @@ func (c *Calculator) RetrieveTopAddresses(ctx context.Context) (TopActiveAddress
 		return TopActiveAddressesRes{}, fmt.Errorf("cannot parse block number: %w", err)
 	}
 
-	resultedStat := make(map[string]int)
-	statMu := sync.Mutex{}
 	statWg := sync.WaitGroup{}
 	blocksProcessed := 0
+	var responsesChan = make(chan map[string]int, blocksToProcess)
 	for i := 0; i <= blocksToProcess; i++ {
 		blockNum.Sub(blockNum, big.NewInt(1))
 		blockNumParam := fmt.Sprintf("0x%x", blockNum)
@@ -98,19 +99,25 @@ func (c *Calculator) RetrieveTopAddresses(ctx context.Context) (TopActiveAddress
 			if err != nil {
 				fmt.Printf("failed to retrieve block %s stats: %s", blockNum.String(), err.Error())
 			}
-			statMu.Lock()
-			blocksProcessed += 1
-			for addr, transfers := range blockStat {
-				aCount, ok := resultedStat[addr]
-				if !ok {
-					aCount = 0
-				}
-				resultedStat[addr] = aCount + transfers
-			}
-			statMu.Unlock()
+			responsesChan <- blockStat
 		}(blockNumParam)
 	}
-	statWg.Wait()
+	go func() {
+		statWg.Wait()
+		close(responsesChan)
+	}()
+
+	resultedStat := make(map[string]int)
+	for blockStat := range responsesChan {
+		for addr, transfers := range blockStat {
+			aCount, ok := resultedStat[addr]
+			if !ok {
+				aCount = 0
+			}
+			resultedStat[addr] = aCount + transfers
+		}
+		blocksProcessed += 1
+	}
 
 	if blocksProcessed < blocksToProcess {
 		return TopActiveAddressesRes{}, fmt.Errorf("processed only %d blocks of %d. See logs for details",

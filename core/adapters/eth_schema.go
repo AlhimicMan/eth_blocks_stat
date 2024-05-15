@@ -1,8 +1,5 @@
 package adapters
 
-//type TransactionRec struct {
-//}
-
 type TransactionRec struct {
 	BlockNumber      string `json:"blockNumber"`
 	From             string `json:"from"`

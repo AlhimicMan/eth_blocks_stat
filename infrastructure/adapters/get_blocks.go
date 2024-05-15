@@ -15,6 +15,7 @@ import (
 const (
 	rpcVersion = "2.0"
 	defaultId  = "getblock.io"
+	apiURL     = "https://go.getblock.io/"
 	rateLimit  = time.Second / 50 // 50 RPS
 )
 
@@ -38,7 +39,7 @@ type JSONRpcRes struct {
 }
 
 func NewGetBlockClient(apiKey string) adapters.GetBlockClientI {
-	apiURL := fmt.Sprintf("https://go.getblock.io/%s", apiKey)
+	apiURL := fmt.Sprintf("%s%s", apiURL, apiKey)
 	throttle := time.Tick(rateLimit)
 	return &GetBlockClient{
 		apiKey:   apiKey,
