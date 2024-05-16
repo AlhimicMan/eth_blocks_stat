@@ -12,19 +12,14 @@ import (
 
 const (
 	erc20TransferSignature = "0xa9059cbb"
-	blocksToProcess        = 100
 )
 
 type Calculator struct {
-	adapter adapters.GetBlockClientI
+	gbAdapter adapters.GetBlockClientI
 }
 
-func NewCalculator(adapter adapters.GetBlockClientI) *Calculator {
-	return &Calculator{adapter: adapter}
-}
-
-func (c *Calculator) Initialize() error {
-	return nil
+func NewCalculator(gbAdapter adapters.GetBlockClientI) *Calculator {
+	return &Calculator{gbAdapter: gbAdapter}
 }
 
 // isERC20Transfer checks if transfer(address,uint256) token transfer in transaction input
@@ -65,7 +60,7 @@ func (c *Calculator) listBlockERC20ActivityStat(block adapters.BlockRecord) (map
 }
 
 func (c *Calculator) retrieveBlockStat(ctx context.Context, blockNum string) (map[string]int, error) {
-	block, err := c.adapter.GetBlockRecord(ctx, blockNum)
+	block, err := c.gbAdapter.GetBlockRecord(ctx, blockNum)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve block %s records: %w", blockNum, err)
 	}
@@ -76,8 +71,8 @@ func (c *Calculator) retrieveBlockStat(ctx context.Context, blockNum string) (ma
 	return blockStat, nil
 }
 
-func (c *Calculator) RetrieveTopAddresses(ctx context.Context) (TopActiveAddressesRes, error) {
-	lastBlockNumber, err := c.adapter.GetLastBlockNumber(ctx)
+func (c *Calculator) RetrieveTopAddresses(ctx context.Context, nBlocks int, nAddresses int) (TopActiveAddressesRes, error) {
+	lastBlockNumber, err := c.gbAdapter.GetLastBlockNumber(ctx)
 	if err != nil {
 		return TopActiveAddressesRes{}, fmt.Errorf("failed to retrieve last block number: %w", err)
 	}
@@ -88,19 +83,19 @@ func (c *Calculator) RetrieveTopAddresses(ctx context.Context) (TopActiveAddress
 
 	statWg := sync.WaitGroup{}
 	blocksProcessed := 0
-	var responsesChan = make(chan map[string]int, blocksToProcess)
-	for i := 0; i <= blocksToProcess; i++ {
-		blockNum.Sub(blockNum, big.NewInt(1))
+	var responsesChan = make(chan map[string]int, nBlocks)
+	for i := 0; i < nBlocks; i++ {
 		blockNumParam := fmt.Sprintf("0x%x", blockNum)
 		statWg.Add(1)
 		go func(bn string) {
 			defer statWg.Done()
 			blockStat, err := c.retrieveBlockStat(ctx, bn)
 			if err != nil {
-				fmt.Printf("failed to retrieve block %s stats: %s", blockNum.String(), err.Error())
+				fmt.Printf("failed to retrieve block %s stats: %s\n", blockNum.String(), err.Error())
 			}
 			responsesChan <- blockStat
 		}(blockNumParam)
+		blockNum.Sub(blockNum, big.NewInt(1))
 	}
 	go func() {
 		statWg.Wait()
@@ -119,9 +114,9 @@ func (c *Calculator) RetrieveTopAddresses(ctx context.Context) (TopActiveAddress
 		blocksProcessed += 1
 	}
 
-	if blocksProcessed < blocksToProcess {
+	if blocksProcessed != nBlocks {
 		return TopActiveAddressesRes{}, fmt.Errorf("processed only %d blocks of %d. See logs for details",
-			blocksProcessed, blocksToProcess)
+			blocksProcessed, nBlocks)
 	}
 
 	addrStats := make([]ActiveAddressRes, 0, len(resultedStat))
@@ -133,11 +128,17 @@ func (c *Calculator) RetrieveTopAddresses(ctx context.Context) (TopActiveAddress
 		addrStats = append(addrStats, stRec)
 	}
 	sort.SliceStable(addrStats, func(i, j int) bool {
-		return addrStats[i].Transfers > addrStats[j].Transfers
+		if addrStats[i].Transfers > addrStats[j].Transfers {
+			return true
+		}
+		if addrStats[i].Transfers < addrStats[j].Transfers {
+			return false
+		}
+		return addrStats[i].Address < addrStats[j].Address
 	})
 	resStat := TopActiveAddressesRes{}
 	if len(addrStats) > 5 {
-		resStat.TopActiveAddresses = addrStats[:5]
+		resStat.TopActiveAddresses = addrStats[:nAddresses]
 	} else {
 		resStat.TopActiveAddresses = addrStats
 	}

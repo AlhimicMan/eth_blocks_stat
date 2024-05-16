@@ -43,7 +43,7 @@ func mountApiViews(apiGroup *echo.Group, cfg config.ServiceConfig) {
 		ctx := c.Request().Context()
 		gBClient := adapters.NewGetBlockClient(cfg.APIKey)
 		statModule := activity_calculator.NewCalculator(gBClient)
-		res, err := statModule.RetrieveTopAddresses(ctx)
+		res, err := statModule.RetrieveTopAddresses(ctx, 100, 5)
 		if err != nil {
 			return c.JSON(http.StatusInternalServerError, err)
 		}
